@@ -1,41 +1,39 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
-// ══════════════════════════════════════════════
-// SUPABASE CONFIG
-// ══════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// SUPABASE CONFIG — already connected!
+// ═══════════════════════════════════════════════════════
 const SUPABASE_URL = "https://avxfmrdtdmisiuccfxpu.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2eGZtcmR0ZG1pc2l1Y2NmeHB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MzYwODEsImV4cCI6MjA5MDUxMjA4MX0.kwEsph6eDgVzDipSKqZQzTX8Ffs6XBpyWGsw9QRbWjU";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2eGZtcmR0ZG1pc2l1Y2NmeHB1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MzYwODEsImV4cCI6MjA5MDUxMjA4MX0.kwEsph6eDgVzDipSKqZQzTX8Ffs6XBpyWGsw9QRbWjU";
 
-// ══════════════════════════════════════════════
-// CONSTANTS
-// ══════════════════════════════════════════════
-const CELL_SIZE = 36;
-const SAFE = [1,9,14,22,27,35,40,48];
-const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const KILL_PTS = 10, FINISH_PTS = 50, WIN_PTS = 200;
-const BOARD_SIZE = 15;
+// ═══════════════════════════════════════════════════════
+// GAME CONSTANTS
+// ═══════════════════════════════════════════════════════
+const CS = 38; // cell size
+const BS = 15; // board size
+const SAFE_CELLS = [1,9,14,22,27,35,40,48];
+const CODE_ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const PTS = { kill:10, finish:50, win:200 };
 
 const PLAYERS = [
-  { id:0, name:"Red",    color:"#E63946", light:"#FF8FA3", dark:"#9B1C24", start:1,  emoji:"🔴" },
-  { id:1, name:"Green",  color:"#2DC653", light:"#90E0A0", dark:"#1A7A32", start:14, emoji:"🟢" },
-  { id:2, name:"Yellow", color:"#FFD60A", light:"#FFF176", dark:"#B89A00", start:27, emoji:"🟡" },
-  { id:3, name:"Blue",   color:"#4361EE", light:"#93C5FD", dark:"#1A3AAA", start:40, emoji:"🔵" },
+  { id:0, name:"Red",    color:"#FF3B5C", light:"#FFB3C1", dark:"#8B0000", home:1,  emoji:"🔴", grad:"linear-gradient(135deg,#FF3B5C,#8B0000)" },
+  { id:1, name:"Green",  color:"#00C853", light:"#B9F6CA", dark:"#1B5E20", home:14, emoji:"🟢", grad:"linear-gradient(135deg,#00C853,#1B5E20)" },
+  { id:2, name:"Yellow", color:"#FFD600", light:"#FFF9C4", dark:"#F57F17", home:27, emoji:"🟡", grad:"linear-gradient(135deg,#FFD600,#F57F17)" },
+  { id:3, name:"Blue",   color:"#2979FF", light:"#BBDEFB", dark:"#0D47A1", home:40, emoji:"🔵", grad:"linear-gradient(135deg,#2979FF,#0D47A1)" },
 ];
 
-const AVATAR_CATS = {
-  "👑 Royals":  ["👸","🤴","🧕","🫅"],
-  "🧑 People":  ["🧑‍🦱","🧔","👩‍🦰","🧑‍🦳"],
-  "🦸 Heroes":  ["🦸","🦹","🧙","🧚"],
-  "😎 Faces":   ["😎","🤩","😈","🤠"],
-  "🐯 Animals": ["🦁","🐯","🦊","🐸"],
+const AVATARS = {
+  "👑":["👸","🤴","🧕","🫅","👲"],
+  "🧑":["🧑‍🦱","🧔","👩‍🦰","🧑‍🦳","👦"],
+  "🦸":["🦸","🦹","🧙","🧚","🧜"],
+  "😎":["😎","🤩","😈","🤠","🥸"],
+  "🐯":["🦁","🐯","🦊","🐸","🐼"],
 };
-const ALL_AVS = Object.values(AVATAR_CATS).flat();
-const REACTIONS = ["😍","😂","😡","😢","🔥","👏","💀","🏆","💪","🎉","😎","🤡"];
+const ALL_AVS = Object.values(AVATARS).flat();
+const REACTS = ["🔥","😂","😡","👏","💀","🏆","💪","🎉","😍","😢","🤡","⚡"];
 
-// ══════════════════════════════════════════════
-// BOARD PATH
-// ══════════════════════════════════════════════
-function cellToPos(c) {
+// Board path mapping
+function cellPos(c) {
   const p=[
     [14,6],[13,6],[12,6],[11,6],[10,6],[9,6],
     [8,5],[8,4],[8,3],[8,2],[8,1],[8,0],[7,0],[6,0],
@@ -55,101 +53,360 @@ function cellToPos(c) {
   return p[c-1];
 }
 
-// ══════════════════════════════════════════════
-// SUPABASE HELPERS
-// ══════════════════════════════════════════════
-let sbClient = null;
-let sbChannel = null;
-let sbOk = false;
+// ═══════════════════════════════════════════════════════
+// SUPABASE CLIENT
+// ═══════════════════════════════════════════════════════
+let SB = null;
+let SB_CHANNEL = null;
 
 async function initSB() {
-  if (sbOk) return true;
+  if(SB) return true;
   try {
     const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
-    sbClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    sbOk = true;
+    SB = createClient(SUPABASE_URL, SUPABASE_KEY, {
+      realtime: { params: { eventsPerSecond: 10 } }
+    });
     return true;
-  } catch(e) {
-    console.error("Supabase init error:", e);
-    return false;
-  }
+  } catch(e) { console.error("SB init:", e); return false; }
 }
 
-async function sbGet(roomCode) {
-  const { data, error } = await sbClient.from("ludo_rooms").select("*").eq("code", roomCode).single();
-  if (error) return null;
+const sbGet = async (code) => {
+  const { data } = await SB.from("ludo_rooms").select("*").eq("code", code).single();
   return data;
-}
+};
+const sbSet = async (code, payload) => {
+  await SB.from("ludo_rooms").upsert({ code, ...payload });
+};
+const sbUpd = async (code, payload) => {
+  await SB.from("ludo_rooms").update(payload).eq("code", code);
+};
 
-async function sbSet(roomCode, payload) {
-  const { error } = await sbClient.from("ludo_rooms").upsert({ code: roomCode, ...payload });
-  if (error) throw error;
-}
-
-async function sbUpdate(roomCode, payload) {
-  const { error } = await sbClient.from("ludo_rooms").update(payload).eq("code", roomCode);
-  if (error) throw error;
-}
-
-async function sbDelete(roomCode) {
-  await sbClient.from("ludo_rooms").delete().eq("code", roomCode);
-}
-
-// Supabase Realtime subscription using Broadcast channel
-function sbSubscribe(roomCode, cb) {
-  if (sbChannel) {
-    sbClient.removeChannel(sbChannel);
-    sbChannel = null;
-  }
-
-  // Subscribe to DB changes on the room row
-  const channel = sbClient
-    .channel(`room-${roomCode}`)
-    .on("postgres_changes", {
-      event: "*",
-      schema: "public",
-      table: "ludo_rooms",
-      filter: `code=eq.${roomCode}`,
-    }, (payload) => {
-      if (payload.new) cb(payload.new);
-    })
+function sbSub(code, cb) {
+  if(SB_CHANNEL) { SB.removeChannel(SB_CHANNEL); SB_CHANNEL = null; }
+  const ch = SB.channel(`room:${code}`)
+    .on("postgres_changes", { event:"*", schema:"public", table:"ludo_rooms", filter:`code=eq.${code}` },
+      payload => { if(payload.new) cb(payload.new); })
     .subscribe();
+  SB_CHANNEL = ch;
+  return () => { SB.removeChannel(ch); SB_CHANNEL = null; };
+}
 
-  sbChannel = channel;
-  return () => {
-    if (channel) sbClient.removeChannel(channel);
-    sbChannel = null;
+function parseRoom(raw) {
+  if(!raw) return null;
+  const parse = (v) => typeof v === "string" ? JSON.parse(v) : v;
+  return {
+    ...raw,
+    players: parse(raw.players) || {},
+    pieces: parse(raw.pieces) || mkPieces(),
+    kills: parse(raw.kills) || [0,0,0,0],
+    scores: parse(raw.scores) || [0,0,0,0],
+    log: parse(raw.log) || [],
+    reactions: parse(raw.reactions) || {},
   };
 }
 
-// ══════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 // GAME LOGIC
-// ══════════════════════════════════════════════
-function mkPieces(){ return PLAYERS.map(()=>Array.from({length:4},(_,i)=>({cell:-1,id:i,home:false}))); }
+// ═══════════════════════════════════════════════════════
+const mkPieces = () => PLAYERS.map(() => Array.from({length:4}, (_,i) => ({cell:-1, id:i, home:false})));
 
-function mkGS(n=4){
-  return { pieces:mkPieces(), cur:0, dice:null, rolled:false, winner:null,
-    n, log:["🎉 Game shuru! Red pehle!"], kills:[0,0,0,0],
-    scores:[0,0,0,0], turns:0, start:Date.now() };
-}
+const mkGS = (n=4) => ({
+  pieces: mkPieces(), cur:0, dice:null, rolled:false, winner:null,
+  n, log:["🎯 Game shuru! Red ki baari!"], kills:[0,0,0,0],
+  scores:[0,0,0,0], turns:0, start:Date.now()
+});
 
-function getMovable(gs,pid,dice){
-  const p=PLAYERS[pid];
-  return gs.pieces[pid].reduce((acc,pc,i)=>{
+function getMovable(gs, pid, dice) {
+  const p = PLAYERS[pid];
+  return gs.pieces[pid].reduce((acc, pc, i) => {
     if(pc.home) return acc;
-    if(pc.cell===-1){ if(dice===6) acc.push({pid,i,from:-1,to:p.start,entry:true,kill:false}); }
-    else { const to=pc.cell+dice; if(to<=72){ const kill=hasEnemy(gs.pieces,pid,to); acc.push({pid,i,from:pc.cell,to,entry:false,kill,safe:SAFE.includes(to)}); }}
+    if(pc.cell === -1) { if(dice === 6) acc.push({pid,i,from:-1,to:p.home,kill:false,entry:true}); }
+    else {
+      const to = pc.cell + dice;
+      if(to <= 72) {
+        const kill = hasEnemy(gs.pieces, pid, to);
+        acc.push({pid,i,from:pc.cell,to,kill,safe:SAFE_CELLS.includes(to),entry:false});
+      }
+    }
     return acc;
-  },[]);
+  }, []);
 }
 
-function hasEnemy(pieces,me,cell){
-  if(SAFE.includes(cell)||cell>52) return false;
-  for(let pid=0;pid<4;pid++){ if(pid===me) continue; for(const p of pieces[pid]) if(p.cell===cell) return true; }
+function hasEnemy(pieces, me, cell) {
+  if(SAFE_CELLS.includes(cell) || cell > 52) return false;
+  for(let p=0;p<4;p++) { if(p===me) continue; for(const pc of pieces[p]) if(pc.cell===cell) return true; }
   return false;
 }
 
-function doMove(gs,pid,i,to){
+function doMove(gs, pid, i, to) {
+  const s = JSON.parse(JSON.stringify(gs));
+  const final = to >= 52 ? 100 : to;
+  s.pieces[pid][i] = { ...s.pieces[pid][i], cell:final, home:to>=52 };
+  if(to >= 52) s.scores[pid] += PTS.finish;
+  if(!SAFE_CELLS.includes(to) && to < 53 && to > 0) {
+    for(let op=0;op<4;op++) {
+      if(op===pid) continue;
+      s.pieces[op] = s.pieces[op].map(p => {
+        if(p.cell===to) { s.kills[pid]++; s.scores[pid]+=PTS.kill; return {...p,cell:-1,home:false}; }
+        return p;
+      });
+    }
+  }
+  if(s.pieces[pid].every(p => p.home)) { s.winner=pid; s.scores[pid]+=PTS.win; }
+  return s;
+}
+
+function nextTurn(gs, extra=false) {
+  return {...gs, dice:null, rolled:false, cur: extra ? gs.cur : (gs.cur+1)%gs.n, turns:(gs.turns||0)+1};
+}
+
+function botMove(gs, pid, dice) {
+  const mv = getMovable(gs, pid, dice);
+  if(!mv.length) return null;
+  return mv.find(m=>m.kill) || mv.find(m=>m.to>=52) || mv.find(m=>m.entry) || mv[0];
+}
+
+// ═══════════════════════════════════════════════════════
+// LOCAL STORAGE
+// ═══════════════════════════════════════════════════════
+const LS = {
+  get: k => { try { return JSON.parse(localStorage.getItem("la2_"+k)); } catch { return null; } },
+  set: (k,v) => { try { localStorage.setItem("la2_"+k, JSON.stringify(v)); } catch {} }
+};
+const loadProfile = () => LS.get("profile");
+const saveProfile = p => LS.set("profile", p);
+const newProfile = () => ({ name:"Player", avatar:"👸", uid:"u_"+Math.random().toString(36).slice(2,10), wins:0, games:0, kills:0, score:0 });
+const getLB = () => (LS.get("lb") || []).sort((a,b) => b.score-a.score);
+function saveLB(uid, name, av, score, win) {
+  const lb = getLB();
+  const i = lb.findIndex(e => e.uid===uid);
+  if(i>=0) { lb[i].score+=score; lb[i].wins=(lb[i].wins||0)+(win?1:0); lb[i].name=name; lb[i].av=av; }
+  else lb.push({uid,name,av,score,wins:win?1:0});
+  LS.set("lb", lb.slice(0,50));
+}
+
+// ═══════════════════════════════════════════════════════
+// GLOBAL CSS
+// ═══════════════════════════════════════════════════════
+const GCSS = `
+@import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;600;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#0a0015;font-family:'Nunito',sans-serif;overflow-x:hidden;}
+::-webkit-scrollbar{width:3px;} ::-webkit-scrollbar-thumb{background:#FFD70040;border-radius:4px;}
+@keyframes fl{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+@keyframes pu{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.08)}}
+@keyframes sp{to{transform:rotate(360deg)}}
+@keyframes up{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
+@keyframes dn{from{opacity:0;transform:translateY(-18px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pk{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:scale(1)}}
+@keyframes cf{0%{transform:translateY(-40px) rotate(0);opacity:1}100%{transform:translateY(105vh) rotate(720deg);opacity:0}}
+@keyframes rc{0%{transform:scale(.5) translateY(0);opacity:0}30%{opacity:1;transform:scale(1.4) translateY(-14px)}70%{opacity:1;transform:scale(1) translateY(-28px)}100%{opacity:0;transform:scale(.8) translateY(-50px)}}
+@keyframes glow{0%,100%{box-shadow:0 0 8px rgba(255,214,0,.3)}50%{box-shadow:0 0 25px rgba(255,214,0,.9)}}
+@keyframes pp{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
+@keyframes shine{0%{background-position:200% center}100%{background-position:-200% center}}
+@keyframes wb{0%{transform:scale(.2) rotate(-200deg);opacity:0}60%{transform:scale(1.2) rotate(10deg);opacity:1}80%{transform:scale(.9) rotate(-4deg)}100%{transform:scale(1) rotate(0);opacity:1}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+.bh:hover{transform:translateY(-3px) scale(1.03)!important;filter:brightness(1.15);}
+.bh:active{transform:scale(.97)!important;}
+.mv{animation:pp .55s ease-in-out infinite!important;cursor:pointer!important;filter:drop-shadow(0 0 8px #fff)!important;}
+.no-select{user-select:none;-webkit-user-select:none;}
+`;
+
+// Design tokens
+const T = {
+  bg: "radial-gradient(ellipse at 20% 0%, #1a0040 0%, #0a0015 40%, #001020 100%)",
+  gold: "#FFD700", amber: "#FF8C00", red: "#FF3B5C",
+  card: "rgba(255,255,255,0.04)", border: "rgba(255,215,0,0.18)",
+  t1: "#fff", t2: "rgba(255,255,255,.65)", t3: "rgba(255,255,255,.3)",
+};
+
+// Styled primitives
+const Card = ({children, style, onClick}) => (
+  <div onClick={onClick} style={{background:T.card, border:`1.5px solid ${T.border}`, borderRadius:20, padding:16, backdropFilter:"blur(16px)", ...style}}>{children}</div>
+);
+
+const Btn = ({children, onClick, disabled, style, variant="gold", className=""}) => {
+  const bgs = {
+    gold: "linear-gradient(135deg,#FFD700,#FF8C00)",
+    outline: "rgba(255,215,0,0.08)",
+    ghost: "rgba(255,255,255,0.06)",
+    red: "linear-gradient(135deg,#FF3B5C,#8B0000)",
+    green: "linear-gradient(135deg,#00C853,#1B5E20)",
+    blue: "linear-gradient(135deg,#2979FF,#0D47A1)",
+  };
+  const cols = { gold:"#000", outline:T.gold, ghost:T.t2, red:"#fff", green:"#fff", blue:"#fff" };
+  const borders = { outline:`2px solid rgba(255,215,0,.35)`, ghost:`1px solid rgba(255,255,255,.1)` };
+  return (
+    <button onClick={onClick} disabled={disabled} className={`bh ${className}`}
+      style={{background:bgs[variant]||bgs.gold, color:cols[variant]||"#000", border:borders[variant]||"none",
+        borderRadius:14, padding:"11px 20px", fontSize:14, fontWeight:800, cursor:disabled?"not-allowed":"pointer",
+        fontFamily:"'Nunito',sans-serif", transition:"all .15s", opacity:disabled?.5:1, ...style}}>
+      {children}
+    </button>
+  );
+};
+
+const Input = ({value, onChange, placeholder, style, onKeyDown, maxLength}) => (
+  <input value={value} onChange={onChange} placeholder={placeholder} onKeyDown={onKeyDown} maxLength={maxLength}
+    style={{width:"100%", padding:"11px 14px", background:"rgba(255,255,255,.07)", border:"1.5px solid rgba(255,215,0,.28)",
+      borderRadius:12, color:"#fff", fontSize:15, fontFamily:"'Nunito',sans-serif", outline:"none", ...style}}/>
+);
+
+const GoldText = ({children, style}) => (
+  <span style={{background:"linear-gradient(90deg,#FFD700,#FF8C00,#FFD700)", WebkitBackgroundClip:"text",
+    WebkitTextFillColor:"transparent", backgroundClip:"text", backgroundSize:"200% auto",
+    animation:"shine 3s linear infinite", fontFamily:"'Fredoka One',cursive", ...style}}>{children}</span>
+);
+
+// ═══════════════════════════════════════════════════════
+// PARTICLES
+// ═══════════════════════════════════════════════════════
+function Particles() {
+  const pts = useMemo(() => Array.from({length:20}, (_,i) => ({
+    id:i, x:Math.random()*100, y:Math.random()*100,
+    sz:1.5+Math.random()*4, op:.05+Math.random()*.2,
+    dur:3+Math.random()*5, del:Math.random()*4,
+    col:["#FFD700","#FF3B5C","#2979FF","#00C853","#FF8C00"][i%5]
+  })), []);
+  return (
+    <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:0,overflow:"hidden"}}>
+      {pts.map(p => <div key={p.id} style={{position:"absolute",left:`${p.x}%`,top:`${p.y}%`,width:p.sz,height:p.sz,
+        borderRadius:"50%",background:p.col,opacity:p.op,animation:`fl ${p.dur}s ${p.del}s ease-in-out infinite`}}/>)}
+    </div>
+  );
+}
+
+function Confetti({on}) {
+  const pcs = useMemo(() => Array.from({length:60}, (_,i) => ({
+    id:i, x:Math.random()*100, col:["#FFD700","#FF3B5C","#2979FF","#00C853","#FF8C00","#FF69B4"][i%6],
+    sz:5+Math.random()*9, dur:2+Math.random()*3, del:Math.random()*2.5, r:Math.random()>.5?"50%":"3px"
+  })), []);
+  if(!on) return null;
+  return (
+    <div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:300,overflow:"hidden"}}>
+      {pcs.map(p => <div key={p.id} style={{position:"absolute",left:`${p.x}%`,top:-20,width:p.sz,height:p.sz,
+        background:p.col,borderRadius:p.r,animation:`cf ${p.dur}s ${p.del}s linear forwards`}}/>)}
+    </div>
+  );
+}
+
+function Toast({msg, type}) {
+  const bg = {info:"linear-gradient(135deg,#FFD700,#FF8C00)", success:"linear-gradient(135deg,#00C853,#00897B)", error:"linear-gradient(135deg,#FF3B5C,#C62828)"};
+  if(!msg) return null;
+  return (
+    <div style={{position:"fixed",top:14,left:"50%",transform:"translateX(-50%)",background:bg[type]||bg.info,
+      color:"#000",fontWeight:800,fontSize:13,padding:"9px 22px",borderRadius:22,
+      boxShadow:"0 6px 24px rgba(0,0,0,.6)",zIndex:9999,animation:"dn .3s ease",whiteSpace:"nowrap",
+      fontFamily:"'Nunito',sans-serif"}}>
+      {msg}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// DICE COMPONENT
+// ═══════════════════════════════════════════════════════
+const DOTS = {1:[[50,50]],2:[[28,28],[72,72]],3:[[28,28],[50,50],[72,72]],4:[[28,28],[72,28],[28,72],[72,72]],5:[[28,28],[72,28],[50,50],[28,72],[72,72]],6:[[28,22],[72,22],[28,50],[72,50],[28,78],[72,78]]};
+
+function Dice({val, rolling, onRoll, disabled, sz=72}) {
+  const dots = val ? DOTS[val] : [];
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
+      <button onClick={()=>!disabled&&!rolling&&onRoll()} disabled={disabled||rolling}
+        style={{background:"none",border:"none",cursor:disabled||rolling?"not-allowed":"pointer",padding:0,opacity:disabled?.4:1}}
+        className="bh">
+        <div style={{width:sz,height:sz,background:rolling?"linear-gradient(135deg,#FF8C00,#FFD700)":"linear-gradient(145deg,#fffde7,#fff8e1)",
+          borderRadius:sz*.18,border:`3px solid ${rolling?"#FF8C00":"#c8960c"}`,
+          boxShadow:rolling?"0 0 24px rgba(255,140,0,.9)":"0 5px 16px rgba(200,150,12,.5)",
+          position:"relative",animation:rolling?"sp .12s linear infinite":"none",transition:"all .2s"}}>
+          {dots.map(([x,y],i) => <div key={i} style={{position:"absolute",width:sz*.13,height:sz*.13,
+            background:rolling?"#fff":"#1a0033",borderRadius:"50%",left:`${x}%`,top:`${y}%`,
+            transform:"translate(-50%,-50%)"}}/>)}
+          {!val&&!rolling&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:sz*.42}}>🎲</div>}
+        </div>
+      </button>
+      <div style={{color:disabled?T.t3:T.gold,fontSize:9,fontWeight:800,letterSpacing:1}}>
+        {rolling?"ROLLING...":disabled?"WAIT":"THROW!"}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// AVATAR PICKER
+// ═══════════════════════════════════════════════════════
+function AvatarPicker({sel, onSel}) {
+  const [cat, setCat] = useState(Object.keys(AVATARS)[0]);
+  return (
+    <div style={{background:"rgba(0,0,0,.35)",borderRadius:14,padding:12,border:"1px solid rgba(255,215,0,.1)"}}>
+      <div style={{textAlign:"center",marginBottom:10}}>
+        <div style={{fontSize:48}}>{sel}</div>
+        <div style={{color:T.t3,fontSize:9,marginTop:3}}>Selected</div>
+      </div>
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"center",marginBottom:9}}>
+        {Object.keys(AVATARS).map(c => (
+          <button key={c} onClick={()=>setCat(c)}
+            style={{padding:"3px 9px",background:cat===c?"rgba(255,215,0,.18)":"transparent",
+              border:`1px solid ${cat===c?"rgba(255,215,0,.4)":"rgba(255,255,255,.08)"}`,
+              borderRadius:8,color:cat===c?T.gold:T.t3,fontSize:14,cursor:"pointer"}}>
+            {c}
+          </button>
+        ))}
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:7,justifyContent:"center"}}>
+        {AVATARS[cat].map(av => (
+          <button key={av} onClick={()=>onSel(av)}
+            style={{fontSize:28,background:sel===av?"rgba(255,215,0,.22)":"rgba(255,255,255,.05)",
+              border:`2.5px solid ${sel===av?"#FFD700":"transparent"}`,
+              borderRadius:10,padding:"4px 7px",cursor:"pointer",
+              transform:sel===av?"scale(1.2)":"scale(1)",transition:"all .15s"}}>
+            {av}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+// YARD ZONE
+// ═══════════════════════════════════════════════════════
+function Yard({pid, pieces, movable, onClick, pData, active, reaction}) {
+  const P = PLAYERS[pid];
+  return (
+    <div style={{width:CS*6,height:CS*6,
+      background:`linear-gradient(135deg,${P.color}18,${P.color}06)`,
+      border:`3px solid ${active?P.color:P.color+"25"}`,
+      borderRadius:16,display:"flex",flexDirection:"column",alignItems:"center",
+      justifyContent:"space-between",padding:"8px 5px",
+      boxShadow:active?`0 0 28px ${P.color}55,inset 0 0 20px ${P.color}10`:"none",
+      transition:"all .3s",position:"relative",overflow:"visible"}}>
+      {reaction && <div style={{position:"absolute",top:-44,left:"50%",transform:"translateX(-50%)",
+        fontSize:32,zIndex:80,animation:"rc 2.5s ease forwards",pointerEvents:"none"}}>{reaction}</div>}
+      {active && <div style={{position:"absolute",top:-12,left:"50%",transform:"translateX(-50%)",
+        background:P.grad,color:"#fff",fontSize:8,fontWeight:900,padding:"2px 10px",borderRadius:10,
+        whiteSpace:"nowrap",animation:"pu .9s ease-in-out infinite",zIndex:15,letterSpacing:1}}>
+        ▶ BAARI
+      </div>}
+      <div style={{textAlign:"center",width:"100%"}}>
+        <div style={{fontSize:22}}>{pData?.avatar||"👤"}</div>
+        <div style={{color:P.color,fontWeight:800,fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",padding:"0 4px"}}>{pData?.name||P.name}</div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,flexGrow:1,alignContent:"center"}}>
+        {pieces.map((pc,idx) => {
+          const mv = movable.some(m=>m.i===idx&&m.pid===pid);
+          return (
+            <div key={idx} style={{width:CS*1.08,height:CS*1.08,borderRadius:"50%",
+              background:`${P.color}12`,border:`2px dashed ${P.color}35`,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>
+              {pc.cell===-1 && (
+                <div onClick={()=>mv&&onClick(pid,idx)} className={mv?"mv no-select":"no-select"}
+                  style={{width:28,height:28,borderRadius:"50%",
+                    background:`radial-gradient(circle at 35% 30%,${P.light} 15%,${P.color} 55%,${P.dark} 100%)`,
+                    border:mv?`3px solid #fff`:`2px solid ${P.dark}`,
+                    boxShadow:mv?"0 0 14px #fff":"0 2px 8px rgba(0,0,0,.7)",
+                    cursor:mv?"pointer":"default",position:"relative",transition:"all .15s"}}>
+                  <div style={{position:"absolute",width:"35%",height:"35%",borderRadius:"50%",background:"rgba(255,255,255,.55)",top:"13%function doMove(gs,pid,i,to){
   const s=JSON.parse(JSON.stringify(gs));
   const finalCell=to>=52?100:to;
   s.pieces[pid][i].cell=finalCell;
